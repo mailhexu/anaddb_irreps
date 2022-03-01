@@ -3,7 +3,7 @@ from ase import Atoms
 from phonopy.phonon.irreps import IrReps
 from phonopy.structure.symmetry import Symmetry
 from phonopy.phonon.character_table import character_table
-from anaddb_irrep.abipy_io import read_phbst_freqs_and_eigvecs, ase_atoms_to_phonopy_atoms
+from anaddb_irreps.abipy_io import read_phbst_freqs_and_eigvecs, ase_atoms_to_phonopy_atoms
 from phonopy.phonon.degeneracy import degenerate_sets as get_degenerate_sets
 
 
