@@ -122,55 +122,114 @@ class ReportingMixin:
 
         return summary
 
-    def format_summary_table(self, include_header: bool = True) -> str:
-        """Format the summary table as a human-readable string."""
+    def format_summary_table(self, include_header: bool = True, include_symmetry: bool = True, include_qpoint_cols: bool = True) -> str:
+        """Format the summary table as a human-readable string.
+        
+        Args:
+            include_header: Whether to include column headers
+            include_symmetry: Whether to include q-point, space group, and point group info
+            include_qpoint_cols: Whether to include qx, qy, qz columns in the table
+        """
         summary = self.get_summary_table()
 
         # Only show activity columns if we have activity data (supported by backend)
         backend = getattr(self, "_backend", "phonopy")
         show_activity = backend == "phonopy"
+        
+        # For both_labels mode, show extra BCS label column
+        show_both = getattr(self, "_both_labels", False) and getattr(self, "_irrep_labels_both", None) is not None
 
         lines = []
-        if summary:
-            qx, qy, qz = summary[0]["qpoint"]
-            lines.append(f"q-point: [{qx:.4f}, {qy:.4f}, {qz:.4f}]")
-        
-        group_symbol = getattr(self, "_pointgroup_symbol", None)
-        if group_symbol:
-            if backend == "irrep":
-                lines.append(f"Space group: {group_symbol}")
-            else:
-                lines.append(f"Point group: {group_symbol}")
-        if lines:
-            lines.append("")
-
+        if include_symmetry:
+            if summary:
+                qx, qy, qz = summary[0]["qpoint"]
+                lines.append(f"q-point: [{qx:.4f}, {qy:.4f}, {qz:.4f}]")
+            
+            space_group = getattr(self, "_spacegroup_symbol", None)
+            point_group = getattr(self, "_pointgroup_symbol", None)
+            
+            if space_group:
+                lines.append(f"Space group: {space_group}")
+            if point_group:
+                lines.append(f"Point group: {point_group}")
+            if lines:
+                lines.append("")
         if include_header:
-            if show_activity:
-                header = "# qx      qy      qz      band  freq(THz)   freq(cm-1)   label        IR  Raman"
+            if include_qpoint_cols:
+                if show_activity and show_both:
+                    header = "# qx      qy      qz      band  freq(THz)   freq(cm-1)   label(M)   label(BCS)  IR  Raman"
+                elif show_activity:
+                    header = "# qx      qy      qz      band  freq(THz)   freq(cm-1)   label        IR  Raman"
+                else:
+                    header = "# qx      qy      qz      band  freq(THz)   freq(cm-1)   label"
             else:
-                header = "# qx      qy      qz      band  freq(THz)   freq(cm-1)   label"
+                if show_activity and show_both:
+                    header = "# band  freq(THz)   freq(cm-1)   label(M)   label(BCS)  IR  Raman"
+                elif show_activity:
+                    header = "# band  freq(THz)   freq(cm-1)   label        IR  Raman"
+                else:
+                    header = "# band  freq(THz)   freq(cm-1)   label"
             lines.append(header)
 
-        for row in summary:
+        for i, row in enumerate(summary):
             qx, qy, qz = row["qpoint"]
             bi = row["band_index"]
             f_thz = row["frequency_thz"]
             f_cm1 = row["frequency_cm1"]
             label = row["label"] or "-"
             
-            if show_activity:
+            if show_both:
+                # Get both labels: phonopy (Mulliken) and irrep (BCS)
+                irrep_labels_both = getattr(self, "_irrep_labels_both", None)
+                label_mulliken = label if label != "-" else ""
+                label_bcs = irrep_labels_both[i] if i < len(irrep_labels_both) else ""
+                
+                if show_activity:
+                    ir_flag = "Y" if row["is_ir_active"] else "."
+                    raman_flag = "Y" if row["is_raman_active"] else "."
+                    if include_qpoint_cols:
+                        line = (
+                            f"{qx:7.4f} {qy:7.4f} {qz:7.4f}  {bi:4d}  "
+                            f"{f_thz:10.4f}  {f_cm1:11.2f}  {label_mulliken:10s}  {label_bcs:10s}  {ir_flag:^3s} {raman_flag:^5s}"
+                        )
+                    else:
+                        line = (
+                            f"{bi:5d}  {f_thz:10.4f}  {f_cm1:11.2f}  {label_mulliken:10s}  {label_bcs:10s}  {ir_flag:^3s} {raman_flag:^5s}"
+                        )
+                else:
+                    if include_qpoint_cols:
+                        line = (
+                            f"{qx:7.4f} {qy:7.4f} {qz:7.4f}  {bi:4d}  "
+                            f"{f_thz:10.4f}  {f_cm1:11.2f}  {label_mulliken:10s}  {label_bcs:10s}"
+                        )
+                    else:
+                        line = (
+                            f"{bi:5d}  {f_thz:10.4f}  {f_cm1:11.2f}  {label_mulliken:10s}  {label_bcs:10s}"
+                        )
+            elif show_activity:
                 ir_flag = "Y" if row["is_ir_active"] else "."
                 raman_flag = "Y" if row["is_raman_active"] else "."
-                line = (
-                    f"{qx:7.4f} {qy:7.4f} {qz:7.4f}  {bi:4d}  "
-                    f"{f_thz:10.4f}  {f_cm1:11.2f}  {label:10s}  {ir_flag:^3s} {raman_flag:^5s}"
-                )
+                if include_qpoint_cols:
+                    line = (
+                        f"{qx:7.4f} {qy:7.4f} {qz:7.4f}  {bi:4d}  "
+                        f"{f_thz:10.4f}  {f_cm1:11.2f}  {label:10s}  {ir_flag:^3s} {raman_flag:^5s}"
+                    )
+                else:
+                    line = (
+                        f"{bi:5d}  {f_thz:10.4f}  {f_cm1:11.2f}  {label:10s}  {ir_flag:^3s} {raman_flag:^5s}"
+                    )
             else:
-                line = (
-                    f"{qx:7.4f} {qy:7.4f} {qz:7.4f}  {bi:4d}  "
-                    f"{f_thz:10.4f}  {f_cm1:11.2f}  {label:10s}"
-                )
+                if include_qpoint_cols:
+                    line = (
+                        f"{qx:7.4f} {qy:7.4f} {qz:7.4f}  {bi:4d}  "
+                        f"{f_thz:10.4f}  {f_cm1:11.2f}  {label:10s}"
+                    )
+                else:
+                    line = (
+                        f"{bi:5d}  {f_thz:10.4f}  {f_cm1:11.2f}  {label:10s}"
+                    )
             lines.append(line)
+
         return "\n".join(lines)
 
     def get_verbose_output(self) -> str:
@@ -202,6 +261,7 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
         degeneracy_tolerance: float = 1e-5,
         log_level: int = 0,
         backend: str = "phonopy",
+        both_labels: bool = False,
     ) -> None:
         self._is_little_cogroup = is_little_cogroup
         self._log_level = log_level
@@ -215,9 +275,21 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
         self._verbose = False
         self._backend = backend.lower()
         self._backend_obj = None
+        self._both_labels = both_labels
+        self._irrep_labels_both = None
+        self._irrep_backend_obj = None
 
     def run(self, kpname=None) -> bool:
         if self._backend == "irrep":
+            # Special case: at Gamma with both_labels=True, use phonopy backend 
+            # which will automatically also run irrep backend for dual display
+            is_gamma = (abs(self._qpoint) < self._symprec).all()
+            if self._both_labels and is_gamma:
+                # Switch to phonopy backend temporarily - it will handle both_labels
+                self._backend = "phonopy"
+                return self.run(kpname=kpname)
+            
+            # Normal irrep backend path (non-Gamma or no both_labels)
             from .irrep_backend import IrRepsIrrep
             self._backend_obj = IrRepsIrrep(
                 primitive=self._primitive,
@@ -232,6 +304,7 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
             self._irreps = self._backend_obj._irreps
             self._degenerate_sets = self._backend_obj._degenerate_sets
             self._pointgroup_symbol = self._backend_obj._pointgroup_symbol
+            self._spacegroup_symbol = self._backend_obj._spacegroup_symbol
             return res
 
         # Existing phonopy logic
@@ -248,6 +321,9 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
 
         import spglib
         self._pointgroup_symbol, _, _ = spglib.get_pointgroup(self._rotations_at_q)
+        
+        # Get space group symbol from symmetry dataset
+        self._spacegroup_symbol = self._symmetry_dataset.international
 
         (self._transformation_matrix, self._conventional_rotations,) = self._get_conventional_rotations()
 
@@ -264,7 +340,6 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
         ):
             self._rotation_symbols, character_table_of_ptg = self._get_rotation_symbols(self._pointgroup_symbol)
             self._character_table = character_table_of_ptg
-            # print(" char tab ", self._character_table)
 
             if self._rotation_symbols:
                 self._ir_labels = self._get_irrep_labels(character_table_of_ptg)
@@ -274,6 +349,26 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
                     if self._log_level > 0:
                         print("IR  labels", IR_labels)
                         print("Ram labels", Ram_labels)
+
+                    # If both_labels is True, also run irrep backend for BCS notation
+                    if self._both_labels:
+                        from .irrep_backend import IrRepsIrrep
+                        self._irrep_backend_obj = IrRepsIrrep(
+                            primitive=self._primitive,
+                            qpoint=self._qpoint,
+                            freqs=self._freqs,
+                            eigvecs=self._eig_vecs,
+                            symprec=self._symprec,
+                            log_level=self._log_level
+                        )
+                        self._irrep_backend_obj.run(kpname="GM")
+                        # Store the irrep labels separately
+                        self._irrep_labels_both = []
+                        for irrep in self._irrep_backend_obj._irreps:
+                            if isinstance(irrep, dict):
+                                self._irrep_labels_both.append(irrep.get("label"))
+                            else:
+                                self._irrep_labels_both.append(getattr(irrep, "label", None))
 
             elif (abs(self._qpoint) < self._symprec).all():
                 if self._log_level > 0:
@@ -354,6 +449,7 @@ class IrRepsEigen(IrReps, IrRepLabels, ReportingMixin):
                 
         return ir_active, raman_active
 
+
 class IrRepsPhonopy(IrRepsEigen):
     """Irreps helper for direct phonopy calculations."""
 
@@ -366,6 +462,7 @@ class IrRepsPhonopy(IrRepsEigen):
         degeneracy_tolerance: float = 1e-5,
         log_level: int = 0,
         backend: str = "phonopy",
+        both_labels: bool = False,
     ) -> None:
         phonon = phonopy_load(phonopy_params)
         q = np.asarray(qpoint, dtype=float)
@@ -376,28 +473,19 @@ class IrRepsPhonopy(IrRepsEigen):
         primitive_atoms = phonon.primitive
 
         if symprec is None:
-            inferred = None
-            sym_obj = getattr(phonon, "_symmetry", None)
-            if sym_obj is not None:
-                inferred = getattr(sym_obj, "_symmetry_tolerance", None)
-                if inferred is None:
-                    inferred = getattr(sym_obj, "tolerance", None)
-            if inferred is None:
-                inferred = 1e-5
-            symprec_value = float(inferred)
-        else:
-            symprec_value = float(symprec)
+            symprec = phonon._symprec
 
         super().__init__(
             primitive_atoms,
-            q,
+            qpoint,
             freqs,
             eigvecs,
             is_little_cogroup=is_little_cogroup,
-            symprec=symprec_value,
+            symprec=symprec,
             degeneracy_tolerance=degeneracy_tolerance,
             log_level=log_level,
             backend=backend,
+            both_labels=both_labels,
         )
 
 
@@ -413,6 +501,7 @@ class IrRepsAnaddb(IrRepsEigen):
         degeneracy_tolerance: float = 1e-5,
         log_level: int = 0,
         backend: str = "phonopy",
+        both_labels: bool = False,
     ) -> None:
         atoms, qpoints, freqs, eig_vecs = read_phbst_freqs_and_eigvecs(phbst_fname)
         primitive_atoms = ase_atoms_to_phonopy_atoms(atoms)
@@ -427,6 +516,7 @@ class IrRepsAnaddb(IrRepsEigen):
             degeneracy_tolerance=degeneracy_tolerance,
             log_level=log_level,
             backend=backend,
+            both_labels=both_labels,
         )
 
 
@@ -474,6 +564,7 @@ def print_irreps_phonopy(
     show_verbose: bool = False,
     backend: str = "phonopy",
     kpname=None,
+    both_labels: bool = False,
 ):
     irr = IrRepsPhonopy(
         phonopy_params=phonopy_params,
@@ -483,6 +574,7 @@ def print_irreps_phonopy(
         degeneracy_tolerance=degeneracy_tolerance,
         log_level=log_level,
         backend=backend,
+        both_labels=both_labels,
     )
     irr.run(kpname=kpname)
 
